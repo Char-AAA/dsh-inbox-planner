@@ -1,0 +1,14 @@
+{
+  "name": "dsh-inbox-planner",
+  "title": { "en": "Inbox Planner", "zh": "收件箱规划" },
+  "description": {
+    "en": "New mail that needs your action becomes dated to-dos (list + calendar), with dedupe, clash warnings and optional calendar sync.",
+    "zh": "新邮件里需要你处理的事，自动连同日期时间写进待办（列表 + 月历），带判重、冲突提示，可选同步到日历。"
+  },
+  "author": "Charles <hanzeyu0123@gmail.com> (https://github.com/Char-AAA)",
+  "homepage": "https://github.com/Char-AAA/dsh-inbox-planner#readme",
+  "repository": { "url": "https://github.com/Char-AAA/dsh-inbox-planner" },
+  "versions": [
+    { "version": "0.3.1", "publishTimestamp": 0, "source": { "type": "npm" }, "engines": { "dsh": ">=0.2.1-rc.2 <0.3.0-0" } }
+  ]
+}

@@ -1,0 +1,6 @@
+# dsh-inbox-planner: dsh-email (mail) → model → dsh-sidebar-todo (to-dos + month calendar).
+# Defaults live in the exported Config schema; change them in Settings → Plugins → dsh-inbox-planner,
+# or override this row's config (id: inbox-planner) in your profile's cordis.patch.yml.
+- insert:
+    - id: inbox-planner
+      name: dsh-inbox-planner
