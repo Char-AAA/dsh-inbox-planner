@@ -185,7 +185,7 @@ test('缺工具时报清楚', async () => {
   const p = createPlanner({ callTool: async () => ({}), hasTool: () => false, route: () => null, store: { load: async () => ({ seen: {}, keys: {}, lastUid: null }), save: async () => {} }, getConfig: () => normalizeConfig({ language: 'zh' }) })
   const r = await p.runOnce()
   assert.equal(r.ok, false)
-  assert.match(r.errors[0], /dsh-email 和 dsh-sidebar-todo/)
+  assert.match(r.errors[0], /dsh-email/)
 })
 
 test('规则小件', () => {

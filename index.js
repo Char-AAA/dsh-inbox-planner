@@ -1,10 +1,10 @@
 /**
- * dsh-inbox-planner — host half only.
+ * dsh-inbox-planner — host half.
  *
- * Mail comes from dsh-email's tools (email_list / email_read), so credentials stay in
- * dsh-email's settings; to-dos go into dsh-sidebar-todo through its personal_todo tool,
- * so they show up in that panel's list AND month calendar with no client code here.
- * Optionally mirrors dated items to dsh-calendar (calendar_create).
+ * Mail comes from dsh-email's tools (email_list / email_read / email_attachment), so
+ * credentials stay in dsh-email's settings. To-dos go through personal_todo: the built-in
+ * panel's own tool, or dsh-sidebar-todo's when that plugin is still enabled. Dated items
+ * can be mirrored to dsh-calendar (calendar_create / calendar_update / calendar_delete).
  */
 
 import { randomUUID } from 'node:crypto'
@@ -13,6 +13,7 @@ import { createPlanner, createStateFile } from './lib/planner.js'
 import { resolveRoute } from './lib/llm.js'
 import { Config as ConfigSchema, normalizeConfig, readDshLocale } from './lib/config.js'
 import { t } from './lib/i18n.js'
+import { todosToIcs } from './lib/ics.js'
 import { createStore, resolveDataFile } from './lib/todo/store.js'
 import { createApi as createTodoApi } from './lib/todo/api.js'
 import { createTool as createTodoTool, createNoteTool } from './lib/todo/tool.js'
@@ -136,13 +137,32 @@ export function apply(ctx, rawConfig) {
       const method = new URL(req.url ?? '/', 'http://dsh.internal').pathname.replace(/^\/inbox-planner\/api\/?/, '')
       try {
         const lang = getConfig().language
+        const body = await readJson(req)
         if (method === 'sync') {
           const r = await planner.runOnce({ reason: 'button' })
-          return send(200, { ok: true, result: { ok: r.ok, created: r.created.length, scanned: r.scanned, text: renderReport(r, lang) } })
+          return send(200, { ok: true, result: { ok: r.ok, created: r.created.length, updated: (r.updated ?? []).length, scanned: r.scanned, text: renderReport(r, lang) } })
         }
         if (method === 'status') {
           const v = await planner.status()
           return send(200, { ok: true, result: { ...v, text: renderReport(v, lang) } })
+        }
+        if (method === 'activity') return send(200, { ok: true, result: await planner.activity({ limit: Number(body.limit) || 50 }) })
+        if (method === 'sender') return send(200, { ok: true, result: await planner.setSender(body.pattern, body.ignore !== false) })
+        if (method === 'rescan') {
+          const uid = typeof body.uid === 'number' || typeof body.uid === 'string' ? body.uid : null
+          if (uid === null || uid === '') return send(400, { ok: false, error: 'uid required' })
+          const r = await planner.rescan(uid, typeof body.account === 'string' ? body.account : undefined, { force: body.force === true })
+          return send(200, { ok: true, result: { ok: r.ok, created: r.created.length, text: renderReport(r, lang) } })
+        }
+        if (method === 'export') {
+          const listed = await executeOne(tools(), 'personal_todo', { action: 'list', view: 'open' })
+          const items = Array.isArray(listed?.items) ? listed.items : []
+          const c = getConfig()
+          return send(200, { ok: true, result: { filename: 'inbox-planner.ics', count: items.filter((x) => x.dueDate).length, ics: todosToIcs(items, { minutes: c.eventMinutes, name: c.language === 'zh' ? '待办' : 'To-do' }) } })
+        }
+        if (method === 'client') {
+          const c = getConfig()
+          return send(200, { ok: true, result: { language: c.language, remindMinutes: c.remindMinutes, briefTime: c.briefTime, quietHours: c.quietHours, remindStyle: c.remindStyle } })
         }
         return send(404, { ok: false, error: 'unknown method' })
       } catch (error) {
@@ -186,15 +206,18 @@ export function apply(ctx, rawConfig) {
     name: 'inbox_planner',
     description:
       'Inbox Planner plugin: automatically turns new emails that need the user\'s action into personal_todo items (with dates, shown in the to-do calendar). ' +
-      'action=status shows the last run; sync checks new mail now; rescan re-analyses one mail (uid required); pause / resume stop or restart automatic processing. ' +
+      'action=status shows the last run and totals; sync checks new mail now; rescan re-analyses one mail (uid required; force=true creates a to-do even if the mail looked like it needed nothing); ' +
+      'activity lists recent per-mail decisions; ignore_sender / unignore_sender (sender = address or domain) skip or restore a sender; pause / resume stop or restart automatic processing. ' +
       'Call only when the user asks about mail-to-to-do syncing or asks to sync/rescan. ' +
       '「收件箱规划」：把需要用户处理的新邮件自动写进待办。',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['status', 'sync', 'rescan', 'pause', 'resume'] },
+        action: { type: 'string', enum: ['status', 'sync', 'rescan', 'activity', 'ignore_sender', 'unignore_sender', 'pause', 'resume'] },
         uid: { type: ['integer', 'string'], description: 'Mail uid for rescan (integer for IMAP, string for POP3/AgentMail)' },
         account: { type: 'string', description: 'dsh-email account name for rescan; omit for the first mailbox' },
+        force: { type: 'boolean', description: 'rescan only: create a to-do even when the mail seems to need nothing' },
+        sender: { type: 'string', description: 'ignore_sender / unignore_sender: address or domain, e.g. news@shop.com or shop.com' },
       },
       required: ['action'],
       additionalProperties: false,
@@ -210,8 +233,10 @@ export function apply(ctx, rawConfig) {
       if (a === 'rescan') {
         const ok = (Number.isInteger(args.uid) && args.uid > 0) || (typeof args.uid === 'string' && args.uid.trim() !== '')
         if (!ok) throw new Error('rescan requires uid')
-        return planner.rescan(args.uid, typeof args.account === 'string' ? args.account.trim() : undefined)
+        return planner.rescan(args.uid, typeof args.account === 'string' ? args.account.trim() : undefined, { force: args.force === true })
       }
+      if (a === 'activity') return planner.activity({ limit: 30 })
+      if (a === 'ignore_sender' || a === 'unignore_sender') return planner.setSender(args.sender, a === 'ignore_sender')
       if (a === 'pause') return planner.setPaused(true)
       if (a === 'resume') return planner.setPaused(false)
       return planner.status()
@@ -235,14 +260,37 @@ export function apply(ctx, rawConfig) {
   })
 }
 
+async function readJson(req) {
+  try {
+    const chunks = []
+    let size = 0
+    for await (const chunk of req) {
+      size += chunk.length
+      if (size > 64 * 1024) return {}
+      chunks.push(chunk)
+    }
+    const v = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}
+    return v && typeof v === 'object' ? v : {}
+  } catch {
+    return {}
+  }
+}
+
 export function renderReport(v, lang = 'en') {
   const L = t(lang)
   if (!v || typeof v !== 'object') return String(v)
   if ('paused' in v && !('lastRun' in v) && !('created' in v)) return v.paused ? L.paused : L.resumed
+  if (Array.isArray(v.items) && 'ignored' in v) {
+    const lines = v.items.map((e) => `${localStamp(e.at)} ${e.account ? `[${e.account}] ` : ''}${e.subject} — ${L.decision[e.what] ?? e.what}${Array.isArray(e.items) && e.items.length ? `：${e.items.map((i) => i.title).join('；')}` : ''} (uid ${e.uid})`)
+    if (v.ignored.length) lines.push(`${L.ignoredList}: ${v.ignored.join(', ')}`)
+    return lines.join('\n') || L.neverRan
+  }
+  if (Array.isArray(v.ignored) && Object.keys(v).length === 1) return `${L.ignoredList}: ${v.ignored.join(', ') || '—'}`
   const r = 'lastRun' in v ? v.lastRun : v
   const head = 'lastRun' in v ? `${L.head(v)}\n` : ''
   if (!r) return `${head}${L.neverRan}`
   const lines = [`${head}${L.run({ ...r, at: localStamp(r.at) })}`]
+  if ('lastRun' in v && v.stats) lines.push(L.totals(v.stats))
   for (const c of r.created) lines.push(`+ ${c}`)
   for (const u of r.updated ?? []) lines.push(L.filled(u))
   if (r.calendar) lines.push(L.calendar(r.calendar))

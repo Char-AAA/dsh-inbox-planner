@@ -28,7 +28,9 @@ todo = once(todo, "name: 'main', key: 'todo', locale: NS,", "name: 'main', key: 
 todo = once(todo, 'style[data-plugin-css="dsh-sidebar-todo"]', 'style[data-plugin-css="dsh-inbox-planner-todo"]', 'style lookup')
 todo = once(todo, "el.dataset.pluginCss = 'dsh-sidebar-todo'", "el.dataset.pluginCss = 'dsh-inbox-planner-todo'", 'style tag')
 todo = once(todo, "          h('h2', { style: S.h1 }, t('title')),\n",
-  "          h('h2', { style: S.h1 }, t('title')),\n          __inboxBridge.SyncIcon ? h(__inboxBridge.SyncIcon, { t: __inboxBridge.t, onDone: reload }) : null,\n", 'header refresh icon')
+  "          h('h2', { style: { ...S.h1, whiteSpace: 'nowrap', flexShrink: 0 } }, t('title')),\n          __inboxBridge.SyncIcon ? h(__inboxBridge.SyncIcon, { t: __inboxBridge.t, onDone: reload }) : null,\n", 'header refresh icon')
+todo = once(todo, "}, ({ size } = {}) => h(TodoIcon, { size: size ?? 16 })))",
+  "}, ({ size } = {}) => h(__inboxBridge.BadgedIcon, null, h(TodoIcon, { size: size ?? 16 }))))", 'sidebar icon dot')
 todo = todo.replace(/\[dsh-sidebar-todo\]/g, '[dsh-inbox-planner todo]')
 // Language: without a locale service fall back to English, not Chinese (DSH's own default).
 todo = once(todo, "let t = (key) => dict.zh[key] ?? key", "let t = (key) => dict.en[key] ?? dict.zh[key] ?? key", 'fallback language')

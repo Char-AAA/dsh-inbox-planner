@@ -9,6 +9,6 @@
   "homepage": "https://github.com/Char-AAA/dsh-inbox-planner#readme",
   "repository": { "url": "https://github.com/Char-AAA/dsh-inbox-planner" },
   "versions": [
-    { "version": "0.3.1", "publishTimestamp": 0, "source": { "type": "npm" }, "engines": { "dsh": ">=0.2.1-rc.2 <0.3.0-0" } }
+    { "version": "0.4.0", "publishTimestamp": 0, "source": { "type": "npm" }, "engines": { "dsh": ">=0.2.1-rc.2 <0.3.0-0" } }
   ]
 }

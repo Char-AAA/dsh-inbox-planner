@@ -59,7 +59,7 @@ async function harness({ mails, llm, config = {}, preTodos = [], extraTools = {}
 test('Config schema：默认值完整，volatile 活引用改动后 normalizeConfig 立即读到新值', () => {
   const live = Config({})
   const n = normalizeConfig(live)
-  for (const f of FIELDS) if (!['category', 'language', 'selfAddresses', 'accounts'].includes(f.key)) assert.deepEqual(n[f.key], f.def, f.key)
+  for (const f of FIELDS) if (!['category', 'language', 'selfAddresses', 'accounts', 'ignoreSenders', 'alwaysSenders'].includes(f.key)) assert.deepEqual(n[f.key], f.def, f.key)
   // 模拟设置页修改：volatile 字段是带 get() 的活引用
   const edited = { ...live, pollSeconds: { get: () => 300 }, language: { get: () => 'en' }, category: { get: () => '' } }
   const m = normalizeConfig(edited)

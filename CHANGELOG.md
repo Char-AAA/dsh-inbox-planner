@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0
+
+- **Reschedules and cancellations are followed.** When a later mail moves something ("interview moved to Friday 14:00"), the existing to-do gets the new date and time with a `🔁` note, and its calendar event moves too (`calendar_update`). When a mail cancels something, the to-do is marked `❌`, ticked off, and its calendar event is deleted (`calendar_delete`). The model returns `change: new | reschedule | cancel`. The rule engine detects the same wording, and for a reschedule it takes the date that follows "改至 / moved to". New setting `followUps`.
+- **Calendar invitations are read directly.** An attached `.ics` file is parsed on this machine through dsh-email's `email_attachment`, with no model call. Time zones are handled, including Outlook's Windows names, as are all-day events. SEQUENCE updates count as reschedules and `METHOD:CANCEL` as cancellations. The temporary download is deleted afterwards. New setting `invites`.
+- **Reminders.** Timed to-dos remind you `remindMinutes` before they start, a daily brief covers today's and overdue items at `briefTime`, and `quietHours` holds reminders until the window ends. By default a reminder is only a red dot on the sidebar To-do icon, cleared when you open To-do; `remindStyle: popup` shows a banner and a system notification instead. Windows share one record of what was shown, and a rescheduled item reminds you again.
+- **Activity log.** A new header icon lists each recent mail with its outcome and why, plus totals: model calls, average latency, reused results, invitations read. **Make a to-do anyway** forces a re-read that always creates an item. **Ignore this sender** skips that sender from then on and can be undone. The agent tool gains `activity`, `ignore_sender`, `unignore_sender` and `rescan` with `force`. New settings `ignoreSenders` and `alwaysSenders`.
+- **Faster.** Reads and model calls for up to `concurrency` mails run in parallel, while to-dos are still written strictly in mail order, so dedupe and clash checks are unchanged. In strict `llm` mode, a failure still stops at that mail. Identical content, such as the same notice in two mailboxes, reuses the earlier result (keyed on subject, body and sent day, kept for 14 days).
+- **Export .ics.** A header icon saves open dated to-dos as a calendar file for a phone or desktop calendar.
+- The "Sync mail → to-do now" row in the sidebar's **More** menu is gone; the refresh icon in the To-do panel header does the same.
+- Notes list attachment names. Reports show model calls, reused results, invitations read and run time, and `status` shows cumulative totals.
+- Host routes `activity`, `sender`, `rescan`, `export` and `client` all sit under `/inbox-planner/api` with the same `connection.requestRejection` admission; request bodies are capped at 64 KB.
+
 ## 0.3.1
 
 - **Every mailbox, not only the default.** Accounts are discovered through dsh-email's `email_health`, and each mailbox gets its own watermark, seen-set and own address, so uids that collide across mailboxes do not interfere. Dedupe and conflict checks still span all mailboxes.

@@ -211,6 +211,46 @@ window.__ModuleLoader__.load({
         "en": "Default calendar event length in minutes when the mail gives none"
       },
       {
+        "key": "followUps",
+        "group": "rules",
+        "labelZh": "跟进改期和取消",
+        "labelEn": "Follow reschedules and cancellations",
+        "kind": "boolean",
+        "def": true,
+        "zh": "后来的邮件说改期或取消时，更新或关闭原来那条待办（以及日历事件）",
+        "en": "When a later mail moves or cancels something, update or close the existing to-do (and its calendar event)"
+      },
+      {
+        "key": "invites",
+        "group": "rules",
+        "labelZh": "读取会议邀请（.ics）",
+        "labelEn": "Read calendar invitations (.ics)",
+        "kind": "boolean",
+        "def": true,
+        "zh": "邮件带日历邀请附件时直接读取时间地点，不调用模型",
+        "en": "Take time and place straight from an attached calendar invitation, without a model call"
+      },
+      {
+        "key": "ignoreSenders",
+        "group": "rules",
+        "labelZh": "忽略这些发件人",
+        "labelEn": "Ignore senders",
+        "kind": "string",
+        "def": "",
+        "zh": "地址或域名片段，逗号分隔；匹配的邮件直接跳过。处理记录里点「忽略此发件人」会加在这里之外的单独名单",
+        "en": "Addresses or domain fragments, comma separated; matching mail is skipped. \"Ignore sender\" in the activity log keeps its own list in addition to this"
+      },
+      {
+        "key": "alwaysSenders",
+        "group": "rules",
+        "labelZh": "总是分析这些发件人",
+        "labelEn": "Always analyse senders",
+        "kind": "string",
+        "def": "",
+        "zh": "地址或域名片段，逗号分隔；这些发件人的邮件不会被当成噪音或仅抄送跳过",
+        "en": "Addresses or domain fragments, comma separated; their mail is never dropped as noise or CC-only"
+      },
+      {
         "key": "promptExtra",
         "group": "model",
         "labelZh": "追加给模型的要求",
@@ -229,6 +269,64 @@ window.__ModuleLoader__.load({
         "def": "",
         "zh": "额外噪音正则：主题或发件人匹配即跳过，不调模型",
         "en": "Extra noise regex on subject/sender; matches are skipped without a model call"
+      },
+      {
+        "key": "concurrency",
+        "group": "model",
+        "labelZh": "并行分析数",
+        "labelEn": "Parallel analyses",
+        "kind": "number",
+        "def": 3,
+        "min": 1,
+        "max": 6,
+        "zh": "同时分析几封邮件（读取和模型调用并行，写入待办仍按顺序）",
+        "en": "Mails analysed at once (reads and model calls run in parallel; to-dos are still written in order)"
+      },
+      {
+        "key": "remindMinutes",
+        "group": "remind",
+        "labelZh": "提前提醒（分钟）",
+        "labelEn": "Remind before (min)",
+        "kind": "number",
+        "def": 30,
+        "min": 0,
+        "max": 1440,
+        "zh": "有具体时间的待办提前多少分钟提醒，0 = 不提醒。提醒在 DSH 窗口打开时弹出",
+        "en": "Minutes before a timed to-do to remind you; 0 = off. Reminders appear while a DSH window is open"
+      },
+      {
+        "key": "briefTime",
+        "group": "remind",
+        "labelZh": "每日简报时间",
+        "labelEn": "Daily brief time",
+        "kind": "string",
+        "def": "08:30",
+        "zh": "HH:mm，到点汇总今天和逾期的待办；留空 = 不发",
+        "en": "HH:mm; lists today's and overdue to-dos at this time; empty = off"
+      },
+      {
+        "key": "quietHours",
+        "group": "remind",
+        "labelZh": "免打扰时段",
+        "labelEn": "Quiet hours",
+        "kind": "string",
+        "def": "22:00-08:00",
+        "zh": "HH:mm-HH:mm，这段时间不弹提醒，结束后补发；留空 = 不设",
+        "en": "HH:mm-HH:mm; no reminders during this window, held ones arrive when it ends; empty = none"
+      },
+      {
+        "key": "remindStyle",
+        "group": "remind",
+        "labelZh": "提醒方式",
+        "labelEn": "How to remind",
+        "kind": "select",
+        "def": "dot",
+        "options": [
+          "dot",
+          "popup"
+        ],
+        "zh": "dot = 只在左侧「待办」图标右上角亮红点，打开待办后消失；popup = 窗口右下角弹提示条，并发系统通知",
+        "en": "dot = only a red dot on the To-do icon in the sidebar, cleared when you open To-do; popup = a banner in the window corner plus a system notification"
       },
       {
         "key": "llmBodyChars",
@@ -267,30 +365,40 @@ window.__ModuleLoader__.load({
         "en": "Model call timeout (ms)"
       }
     ]
-    const GROUPS = [{"id":"basic","zh":"基本","en":"Basics"},{"id":"rules","zh":"判定规则","en":"Rules"},{"id":"calendar","zh":"日历","en":"Calendar"},{"id":"model","zh":"模型","en":"Model"}]
+    const GROUPS = [{"id":"basic","zh":"基本","en":"Basics"},{"id":"rules","zh":"判定规则","en":"Rules"},{"id":"calendar","zh":"日历","en":"Calendar"},{"id":"remind","zh":"提醒","en":"Reminders"},{"id":"model","zh":"模型","en":"Model"}]
 
     const UI = {
       zh: {
         summary: '新邮件里需要你处理的事，自动写进带日历的待办',
-        syncRow: '立即同步邮件 → 待办', syncing: '正在同步…', syncFailed: '同步失败',
+        syncRow: '立即同步邮件', syncing: '正在同步…', syncFailed: '同步失败',
         syncDone: (n, m) => (n > 0 ? `新增 ${n} 条待办` : m > 0 ? `检查了 ${m} 封，没有新待办` : '没有新邮件'),
         loading: '正在读取设置…', unavailable: '宿主没有提供这一行的设置（插件未运行？）',
         readonly: '当前配置文件只读，不能在这里修改。',
         save: '保存', saving: '保存中…', saved: '已保存，立即生效', failed: '保存失败：宿主拒绝了这些值，已恢复为宿主的当前值',
         discard: '放弃修改', reset: '恢复默认', overridden: '已修改', unsaved: (n) => `${n} 项未保存`,
         on: '开', off: '关', defaultIs: (v) => `默认：${v}`, empty: '（空）',
-        opt_language_auto: '跟随系统', opt_engine_auto: '自动（模型优先，失败用规则）', opt_zh: '中文', opt_en: 'English', opt_llm: '只用模型', opt_rules: '只用规则', opt_events: '只写需要到场的事', opt_all: '有日期的都写', opt_off: '不写', opt_system: '跟随上面的语言', opt_mail: '保留邮件原语言',
+        logTitle: '最近处理的邮件', logEmpty: '还没有处理记录', logLoading: '正在读取…', close: '关闭',
+        forceCreate: '还是建一条', ignoreSender: '忽略此发件人', unignore: '恢复', ignoredHead: '已忽略的发件人',
+        exportIcs: '导出 .ics（可导入手机日历）', exported: (n) => `已导出 ${n} 条`, exportNone: '没有带日期的待办可导出',
+        what_noise: '噪音', what_ignored: '已忽略', what_none: '不用处理', what_cc: '仅抄送', what_dup: '已在清单', what_todo: '已建待办', 'what_todo+cal': '待办 + 日历', what_moved: '已改期', what_cancelled: '已取消', what_error: '出错',
+        remindTitle: (m) => (m <= 0 ? '现在开始' : m < 60 ? `${m} 分钟后开始` : `${Math.round(m / 60)} 小时后开始`), briefTitle: '今日待办', briefBody: (today, overdue) => `今天 ${today} 件${overdue ? `，逾期 ${overdue} 件` : ''}`, dismiss: '知道了',
+        opt_language_auto: '跟随系统', opt_engine_auto: '自动（模型优先，失败用规则）', opt_zh: '中文', opt_en: 'English', opt_llm: '只用模型', opt_rules: '只用规则', opt_events: '只写需要到场的事', opt_all: '有日期的都写', opt_off: '不写', opt_system: '跟随上面的语言', opt_dot: '待办图标上的红点', opt_popup: '弹出提示和系统通知', opt_mail: '保留邮件原语言',
       },
       en: {
         summary: 'Mail that needs your action becomes dated to-dos with a calendar',
-        syncRow: 'Sync mail → to-do now', syncing: 'Syncing…', syncFailed: 'Sync failed',
+        syncRow: 'Check mail now', syncing: 'Syncing…', syncFailed: 'Sync failed',
         syncDone: (n, m) => (n > 0 ? `${n} new to-do${n > 1 ? 's' : ''}` : m > 0 ? `${m} checked, nothing new` : 'No new mail'),
         loading: 'Loading settings…', unavailable: 'The host exposes no settings for this row (is the plugin running?)',
         readonly: 'The configuration file is read-only here.',
         save: 'Save', saving: 'Saving…', saved: 'Saved — applied immediately', failed: 'Not saved: the host rejected these values and its current values were restored',
         discard: 'Discard', reset: 'Reset', overridden: 'Changed', unsaved: (n) => `${n} unsaved`,
         on: 'On', off: 'Off', defaultIs: (v) => `Default: ${v}`, empty: '(empty)',
-        opt_language_auto: 'Follow system', opt_engine_auto: 'Auto (model, rules fallback)', opt_zh: '中文', opt_en: 'English', opt_llm: 'Model only', opt_rules: 'Rules only', opt_events: 'Only things to attend', opt_all: 'Every dated item', opt_off: 'Never', opt_system: 'Same as above', opt_mail: 'Keep mail language',
+        logTitle: 'Recently processed mail', logEmpty: 'Nothing processed yet', logLoading: 'Loading…', close: 'Close',
+        forceCreate: 'Make a to-do anyway', ignoreSender: 'Ignore this sender', unignore: 'Restore', ignoredHead: 'Ignored senders',
+        exportIcs: 'Export .ics (import into a phone calendar)', exported: (n) => `${n} exported`, exportNone: 'No dated to-dos to export',
+        what_noise: 'noise', what_ignored: 'ignored', what_none: 'nothing to do', what_cc: 'CC only', what_dup: 'already listed', what_todo: 'to-do added', 'what_todo+cal': 'to-do + calendar', what_moved: 'rescheduled', what_cancelled: 'cancelled', what_error: 'error',
+        remindTitle: (m) => (m <= 0 ? 'Starting now' : m < 60 ? `Starts in ${m} min` : `Starts in ${Math.round(m / 60)} h`), briefTitle: 'Today\'s to-dos', briefBody: (today, overdue) => `${today} today${overdue ? `, ${overdue} overdue` : ''}`, dismiss: 'Got it',
+        opt_language_auto: 'Follow system', opt_engine_auto: 'Auto (model, rules fallback)', opt_zh: '中文', opt_en: 'English', opt_llm: 'Model only', opt_rules: 'Rules only', opt_events: 'Only things to attend', opt_all: 'Every dated item', opt_off: 'Never', opt_system: 'Same as above', opt_dot: 'Red dot on the To-do icon', opt_popup: 'Banner and system notification', opt_mail: 'Keep mail language',
       },
     }
 
@@ -456,47 +564,13 @@ window.__ModuleLoader__.load({
           phase.kind === 'failed' ? h('span', { style: S.error }, phase.message ? `${t('failed')} (${phase.message})` : t('failed')) : null) : null)
     }
 
-    async function callApi(method) {
+    async function callApi(method, payload) {
       const res = await fetch(new URL(`inbox-planner/api/${method}`, document.baseURI).href, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload ?? {}),
       })
       const body = await res.json().catch(() => null)
       if (!body || !body.ok) throw new Error((body && body.error) || `HTTP ${res.status}`)
       return body.result
-    }
-
-    const ROW = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box', padding: '6px 10px', border: 'none', borderRadius: 6, background: 'transparent', color: 'var(--dsw-alias-label-primary)', fontSize: 13, textAlign: 'left', cursor: 'pointer' }
-
-    /** A row in the sidebar's More menu: run one sync now, then open the To-do panel. */
-    function SyncRow({ entries, onOpen, onDismiss, t }) {
-      const [phase, setPhase] = useState({ kind: 'idle' })
-      const [hover, setHover] = useState(false)
-      const run = async () => {
-        if (phase.kind === 'running') return
-        setPhase({ kind: 'running' })
-        try {
-          const r = await callApi('sync')
-          setPhase({ kind: r.ok ? 'done' : 'failed', created: r.created, scanned: r.scanned })
-          setTimeout(() => {
-            if (Array.isArray(entries) && entries.some((e) => e && e.id === 'inbox-todo') && typeof onOpen === 'function') onOpen('inbox-todo')
-            if (typeof onDismiss === 'function') onDismiss()
-          }, 900)
-        } catch (error) {
-          setPhase({ kind: 'failed', message: error instanceof Error ? error.message : String(error) })
-        }
-      }
-      const label = phase.kind === 'running' ? t('syncing')
-        : phase.kind === 'done' ? t('syncDone')(phase.created, phase.scanned)
-          : phase.kind === 'failed' ? `${t('syncFailed')}${phase.message ? `: ${phase.message}` : ''}`
-            : t('syncRow')
-      return h('button', {
-        type: 'button', role: 'menuitem', 'data-inbox-planner-sync': '',
-        style: { ...ROW, background: hover ? 'var(--dsw-alias-interactive-bg-hover)' : 'transparent', color: phase.kind === 'failed' ? 'var(--dsw-alias-state-error-primary)' : ROW.color },
-        onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false),
-        onClick: () => void run(),
-      },
-      h('span', { 'aria-hidden': true, style: { width: 16, textAlign: 'center' } }, phase.kind === 'running' ? '⏳' : '📬'),
-      h('span', null, label))
     }
 
     /** Refresh icon for the To-do panel header: check mail now, then reload the list. */
@@ -532,6 +606,267 @@ window.__ModuleLoader__.load({
           : null)
     }
 
+    const ICON_BTN = { width: 28, height: 28, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: 6, background: 'transparent', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' }
+    const svg = (paths) => h('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, ...paths.map((d, i) => h('path', { key: i, d })))
+    const stamp = (iso) => {
+      const at = new Date(iso)
+      if (Number.isNaN(at.getTime())) return ''
+      const p = (n) => String(n).padStart(2, '0')
+      return `${p(at.getMonth() + 1)}-${p(at.getDate())} ${p(at.getHours())}:${p(at.getMinutes())}`
+    }
+    const senderPattern = (e) => {
+      const a = String(e.fromAddr || '').toLowerCase()
+      return a.includes('@') ? a : ''
+    }
+
+    /** Popover listing recent per-mail decisions, with "make a to-do anyway" and "ignore sender". */
+    function ActivityPanel({ t, onClose, onChanged, anchor }) {
+      const [data, setData] = useState(null)
+      const [busy, setBusy] = useState('')
+      const [error, setError] = useState('')
+      const load = async () => {
+        try { setData(await callApi('activity', { limit: 40 })); setError('') } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+      }
+      useEffect(() => { void load() }, [])
+      useEffect(() => {
+        const onKey = (e) => { if (e.key === 'Escape') onClose() }
+        document.addEventListener('keydown', onKey)
+        return () => document.removeEventListener('keydown', onKey)
+      }, [])
+      const act = async (id, fn) => {
+        setBusy(id)
+        try { await fn(); await load(); if (typeof onChanged === 'function') await onChanged() } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+        setBusy('')
+      }
+      // Fixed to the viewport next to the button, so a panel header with overflow:hidden cannot clip it.
+      const vw = typeof window !== 'undefined' && window.innerWidth ? window.innerWidth : 1024
+      const width = Math.min(380, vw - 24)
+      const left = anchor ? Math.max(12, Math.min(anchor.left, vw - width - 12)) : 12
+      const W = { position: 'fixed', top: anchor ? anchor.bottom + 6 : 60, left, zIndex: 2147482000, width, maxHeight: 440, overflow: 'auto', padding: 12, borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-base, #fff))', boxShadow: '0 8px 24px rgba(0,0,0,.18)', textAlign: 'left' }
+      const items = data?.items ?? []
+      return h('div', { style: W, role: 'dialog', 'aria-label': t('logTitle'), 'data-inbox-planner-activity': '' },
+        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 } },
+          h('strong', { style: { fontSize: 13 } }, t('logTitle')),
+          h('button', { type: 'button', style: S.link, onClick: onClose }, t('close'))),
+        data?.stats && data.stats.mails > 0 ? h('div', { style: { ...S.note, marginBottom: 8 } }, `${data.stats.mails} · +${data.stats.created} · 🔁${data.stats.moved} · ❌${data.stats.cancelled} · LLM ${data.stats.llmCalls}${data.stats.llmCalls ? ` (${(data.stats.llmMs / data.stats.llmCalls / 1000).toFixed(1)}s)` : ''} · ♻${data.stats.cacheHits} · 📅${data.stats.invites}`) : null,
+        error ? h('div', { style: S.error }, error) : null,
+        data === null && !error ? h('div', { style: S.note }, t('logLoading')) : null,
+        data !== null && items.length === 0 ? h('div', { style: S.note }, t('logEmpty')) : null,
+        items.map((e, i) => {
+          const id = `${e.account || ''}/${e.uid}/${i}`
+          const skipped = ['noise', 'ignored', 'none', 'cc', 'error'].includes(e.what)
+          const pattern = senderPattern(e)
+          return h('div', { key: id, style: { padding: '8px 0', borderTop: i ? '1px solid var(--dsw-alias-border-l2)' : 'none' }, 'data-activity-row': e.what },
+            h('div', { style: { fontSize: 13, color: 'var(--dsw-alias-label-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: e.subject }, e.subject || '—'),
+            h('div', { style: S.note }, `${stamp(e.at)} · ${e.from || ''}${e.account ? ` · ${e.account}` : ''} · ${t(`what_${e.what}`)}`),
+            Array.isArray(e.items) && e.items.length ? h('div', { style: { ...S.note, color: 'var(--dsw-alias-label-secondary)' } }, e.items.map((x) => x.title).join(' · ')) : null,
+            h('div', { style: { display: 'flex', gap: 12, marginTop: 4 } },
+              skipped ? h('button', { type: 'button', style: S.link, disabled: busy !== '', 'data-force': '', onClick: () => void act(id, () => callApi('rescan', { uid: e.uid, account: e.account || undefined, force: true })) }, busy === id ? '…' : t('forceCreate')) : null,
+              pattern && e.what !== 'ignored' ? h('button', { type: 'button', style: S.link, disabled: busy !== '', 'data-ignore': '', onClick: () => void act(`${id}/i`, () => callApi('sender', { pattern, ignore: true })) }, t('ignoreSender')) : null))
+        }),
+        data && data.ignored && data.ignored.length ? h('div', { style: { marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--dsw-alias-border-l2)' } },
+          h('div', { style: { ...S.note, marginBottom: 4 } }, t('ignoredHead')),
+          data.ignored.map((p) => h('div', { key: p, style: { display: 'flex', justifyContent: 'space-between', fontSize: 12 } },
+            h('span', null, p),
+            h('button', { type: 'button', style: S.link, disabled: busy !== '', onClick: () => void act(`u/${p}`, () => callApi('sender', { pattern: p, ignore: false })) }, t('unignore'))))) : null)
+    }
+
+    async function exportIcs(t) {
+      const r = await callApi('export')
+      if (!r.count) return t('exportNone')
+      const url = URL.createObjectURL(new Blob([r.ics], { type: 'text/calendar;charset=utf-8' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = r.filename || 'inbox-planner.ics'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+      return t('exported')(r.count)
+    }
+
+    /** To-do panel header: refresh, activity log, export. */
+    function HeaderTools({ t, onDone }) {
+      const [open, setOpen] = useState(null)
+      const [msg, setMsg] = useState('')
+      // The To-do page is on screen: clear the dot and keep it off while the page stays open.
+      useEffect(() => {
+        badge.set(false)
+        badge.viewing += 1
+        return () => { badge.viewing = Math.max(0, badge.viewing - 1) }
+      }, [])
+      const run = async () => {
+        try { setMsg(await exportIcs(t)) } catch (e) { setMsg(e instanceof Error ? e.message : String(e)) }
+        setTimeout(() => setMsg(''), 4000)
+      }
+      return h('span', { style: { position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 2 } },
+        h(SyncIcon, { t, onDone }),
+        h('button', { type: 'button', className: 'td-btn', style: ICON_BTN, title: t('logTitle'), 'aria-label': t('logTitle'), 'aria-expanded': Boolean(open), 'data-inbox-planner-log': '',
+          onClick: (e) => { const r = e.currentTarget.getBoundingClientRect(); setOpen((v) => (v ? null : { left: r.left, right: r.right, bottom: r.bottom })) } },
+          svg(['M3 3.5h10', 'M3 8h10', 'M3 12.5h6'])),
+        h('button', { type: 'button', className: 'td-btn', style: ICON_BTN, title: t('exportIcs'), 'aria-label': t('exportIcs'), 'data-inbox-planner-export': '', onClick: () => void run() },
+          svg(['M8 2.5v7.5', 'M5 7l3 3 3-3', 'M3 12.5v1h10v-1'])),
+        msg ? h('span', { style: { fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' } }, msg) : null,
+        open ? h(ActivityPanel, { t, anchor: open, onClose: () => setOpen(null), onChanged: onDone }) : null)
+    }
+
+    // ---------------- Reminders: timed to-dos, a daily brief, quiet hours ----------------
+    const FIRED_KEY = 'dsh-inbox-planner:fired'
+    function loadFired() {
+      try { return JSON.parse(window.localStorage.getItem(FIRED_KEY) || '{}') || {} } catch { return {} }
+    }
+    function saveFired(map) {
+      const cutoff = Date.now() - 4 * 86400000
+      const kept = {}
+      for (const [k, v] of Object.entries(map)) if (v > cutoff) kept[k] = v
+      try { window.localStorage.setItem(FIRED_KEY, JSON.stringify(kept)) } catch { /* storage unavailable: in-memory only */ }
+      return kept
+    }
+    const minutesOf = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
+    /** True when `now` falls in "HH:mm-HH:mm" (may wrap midnight). */
+    function inQuiet(now, spec) {
+      const m = /^(\d{2}:\d{2})-(\d{2}:\d{2})$/.exec(spec || '')
+      if (!m) return false
+      const cur = now.getHours() * 60 + now.getMinutes()
+      const a = minutesOf(m[1])
+      const b = minutesOf(m[2])
+      return a <= b ? cur >= a && cur < b : cur >= a || cur < b
+    }
+    const dayOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+    /** Pure decision for one tick: which reminders are due now. Exported for tests via __inboxBridge. */
+    function dueReminders(todos, cfg, now, fired) {
+      const out = []
+      if (inQuiet(now, cfg.quietHours)) return out
+      const today = dayOf(now)
+      const open = todos.filter((x) => x && !x.done && !x.completedAt && !x.repeat && x.dueDate)
+      if (cfg.remindMinutes > 0) {
+        for (const x of open) {
+          if (!x.dueTime || x.dueDate < today) continue
+          const [y, mo, d] = x.dueDate.split('-').map(Number)
+          const due = new Date(y, mo - 1, d, Number(x.dueTime.slice(0, 2)), Number(x.dueTime.slice(3, 5)))
+          const key = `${x.id}@${x.dueDate} ${x.dueTime}`
+          const lead = (due - now) / 60000
+          if (fired[key] || lead > cfg.remindMinutes || lead < -60) continue
+          out.push({ key, kind: 'remind', title: x.title, minutes: Math.max(0, Math.round(lead)), time: x.dueTime })
+        }
+      }
+      if (cfg.briefTime && now.getHours() * 60 + now.getMinutes() >= minutesOf(cfg.briefTime) && !fired[`brief@${today}`]) {
+        const todayItems = open.filter((x) => x.dueDate === today)
+        const overdue = open.filter((x) => x.dueDate < today)
+        out.push({ key: `brief@${today}`, kind: 'brief', today: todayItems.length, overdue: overdue.length, titles: [...overdue, ...todayItems].slice(0, 6).map((x) => `${x.dueTime ? `${x.dueTime} ` : ''}${x.title}`), silent: todayItems.length + overdue.length === 0 })
+      }
+      return out
+    }
+
+    function toastHost() {
+      let host = document.querySelector('[data-inbox-planner-toasts]')
+      if (!host) {
+        host = document.createElement('div')
+        host.setAttribute('data-inbox-planner-toasts', '')
+        Object.assign(host.style, { position: 'fixed', right: '16px', bottom: '16px', zIndex: 2147483000, display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '340px', pointerEvents: 'none' })
+        document.body.appendChild(host)
+      }
+      return host
+    }
+    function showToast(title, body, dismissLabel, ms) {
+      const el = document.createElement('div')
+      el.setAttribute('role', 'status')
+      Object.assign(el.style, { pointerEvents: 'auto', padding: '10px 12px', borderRadius: '10px', border: '1px solid var(--dsw-alias-border-l2, #ddd)', background: 'var(--dsw-alias-bg-layer-1, #fff)', color: 'var(--dsw-alias-label-primary, #111)', boxShadow: '0 8px 24px rgba(0,0,0,.18)', fontSize: '13px', lineHeight: '18px' })
+      const head = document.createElement('div')
+      head.style.fontWeight = '600'
+      head.textContent = title
+      const text = document.createElement('div')
+      text.style.whiteSpace = 'pre-line'
+      text.style.color = 'var(--dsw-alias-label-secondary, #555)'
+      text.textContent = body
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.textContent = dismissLabel
+      Object.assign(btn.style, { marginTop: '6px', border: 'none', background: 'none', padding: '0', fontSize: '12px', color: 'var(--dsw-alias-state-business-primary, #2563eb)', cursor: 'pointer' })
+      btn.onclick = () => el.remove()
+      el.append(head, text, btn)
+      toastHost().appendChild(el)
+      if (ms > 0) setTimeout(() => el.remove(), ms)
+      return el
+    }
+    function systemNotify(title, body, tag) {
+      try {
+        if (typeof Notification === 'undefined') return
+        if (Notification.permission === 'granted') { new Notification(title, { body, tag }); return }
+        if (Notification.permission === 'default' && !window.__inboxPlannerAsked) {
+          window.__inboxPlannerAsked = true
+          void Notification.requestPermission().then((p) => { if (p === 'granted') new Notification(title, { body, tag }) }).catch(() => {})
+        }
+      } catch { /* not allowed in this context */ }
+    }
+
+    async function listTodos() {
+      for (const path of ['inbox-planner/todo/api/list', 'todo/api/list']) {
+        try {
+          const res = await fetch(new URL(path, document.baseURI).href, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ view: 'open' }) })
+          if (!res.ok) continue
+          const body = await res.json()
+          if (body && body.ok && Array.isArray(body.result?.items)) return body.result.items
+        } catch { /* try the next route */ }
+      }
+      return null
+    }
+
+    // ---- Red dot on the sidebar To-do icon: set by a due reminder, cleared when the To-do page is open ----
+    const BADGE_KEY = 'dsh-inbox-planner:badge'
+    const badge = {
+      on: (() => { try { return window.localStorage.getItem(BADGE_KEY) === '1' } catch { return false } })(),
+      subs: new Set(),
+      viewing: 0,
+      set(v) {
+        const next = Boolean(v) && this.viewing === 0
+        if (next === this.on) return
+        this.on = next
+        try { window.localStorage.setItem(BADGE_KEY, next ? '1' : '0') } catch { /* in-memory only */ }
+        for (const f of this.subs) f(next)
+      },
+    }
+
+    /** Wraps the sidebar To-do icon and draws the dot at its top-right corner. */
+    function BadgedIcon({ children }) {
+      const [on, setOn] = useState(badge.on)
+      useEffect(() => { badge.subs.add(setOn); setOn(badge.on); return () => { badge.subs.delete(setOn) } }, [])
+      return h('span', { style: { position: 'relative', display: 'inline-flex' }, 'data-inbox-planner-badge': on ? 'on' : 'off' },
+        children,
+        on ? h('span', { 'aria-hidden': true, style: { position: 'absolute', top: -2, right: -3, width: 7, height: 7, borderRadius: '50%', background: 'var(--dsw-alias-state-error-primary, #e5484d)', boxShadow: '0 0 0 1.5px var(--dsw-alias-bg-base, #fff)' } }) : null)
+    }
+
+    function startReminders(t) {
+      let cfg = null
+      let cfgAt = 0
+      let fired = loadFired()
+      let stopped = false
+      const tick = async () => {
+        if (stopped) return
+        try {
+          if (!cfg || Date.now() - cfgAt > 5 * 60000) { cfg = await callApi('client'); cfgAt = Date.now() }
+          if (!cfg || (cfg.remindMinutes <= 0 && !cfg.briefTime)) return
+          const todos = await listTodos()
+          if (!todos) return
+          fired = { ...loadFired(), ...fired }
+          for (const r of dueReminders(todos, cfg, new Date(), fired)) {
+            fired[r.key] = Date.now()
+            if (r.kind === 'brief' && r.silent) continue
+            if (cfg.remindStyle !== 'popup') { badge.set(true); continue }
+            const title = r.kind === 'brief' ? t('briefTitle') : `${r.time} · ${t('remindTitle')(r.minutes)}`
+            const body = r.kind === 'brief' ? `${t('briefBody')(r.today, r.overdue)}\n${r.titles.join('\n')}` : r.title
+            showToast(title, body, t('dismiss'), r.kind === 'brief' ? 60000 : 0)
+            systemNotify(title, body, r.key)
+          }
+          fired = saveFired(fired)
+        } catch { /* host busy or restarting: try again next tick */ }
+      }
+      const first = setTimeout(() => void tick(), 8000)
+      const timer = setInterval(() => void tick(), 30000)
+      return () => { stopped = true; clearTimeout(first); clearInterval(timer) }
+    }
+
     function ensureSpinStyle() {
       if (typeof document === 'undefined' || document.querySelector('style[data-plugin-css="dsh-inbox-planner"]')) return () => {}
       const el = document.createElement('style')
@@ -542,7 +877,7 @@ window.__ModuleLoader__.load({
     }
 
     // The To-do + calendar panel (adapted from dsh-sidebar-todo, MIT); see scripts/build-client.mjs.
-    const __inboxBridge = { SyncIcon: null, t: null }
+    const __inboxBridge = { SyncIcon: null, t: null, BadgedIcon, dueReminders, inQuiet }
     const __todoModule = ({
       factory(require) {
         const React = require('react')
@@ -2559,7 +2894,7 @@ window.__ModuleLoader__.load({
     
           return h('div', { style: S.page },
             h('div', { style: S.head },
-              h('h2', { style: S.h1 }, t('title')),
+              h('h2', { style: { ...S.h1, whiteSpace: 'nowrap', flexShrink: 0 } }, t('title')),
               __inboxBridge.SyncIcon ? h(__inboxBridge.SyncIcon, { t: __inboxBridge.t, onDone: reload }) : null,
               h('span', { style: S.count }, `${t('today')} ${state.summary.today ?? 0} · ${t('overdue')} ${state.summary.overdue ?? 0} · ${t('stale')} ${state.summary.stale ?? 0} · ${t('unplanned')} ${state.summary.unplanned ?? 0}`),
               h('div', { style: S.grow }),
@@ -3101,7 +3436,7 @@ window.__ModuleLoader__.load({
             ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
               name: 'sidebar.panellist', id: 'inbox-todo', order: 20,
               label: () => t('nav'), locale: NS, inject: () => ({ t }),
-            }, ({ size } = {}) => h(TodoIcon, { size: size ?? 16 })))
+            }, ({ size } = {}) => h(__inboxBridge.BadgedIcon, null, h(TodoIcon, { size: size ?? 16 }))))
     
             ctx.slots.inject('main', () => ctx.slots.register({
               name: 'main', key: 'inbox-todo', locale: NS, inject: () => ({ t }),
@@ -3114,6 +3449,8 @@ window.__ModuleLoader__.load({
 
     return {
       inject: ['slots'],
+      // Pure helpers, reachable by the test suite only.
+      _test: { dueReminders, inQuiet, badge },
       apply(ctx) {
         ctx.effect(() => ensureSpinStyle(), 'dsh-inbox-planner: styles')
         const dict = buildDict()
@@ -3129,11 +3466,9 @@ window.__ModuleLoader__.load({
           return lookup(key)
         }
         __inboxBridge.t = t
-        __inboxBridge.SyncIcon = SyncIcon
+        __inboxBridge.SyncIcon = HeaderTools
         todo.apply(ctx)
-        ctx.slots.inject('sidebar.panellist.actions', () => ctx.slots.register({
-          name: 'sidebar.panellist.actions', id: 'inbox-planner-sync', order: 5,
-        }, (props) => h(SyncRow, { ...props, t })))
+        if (typeof window !== 'undefined' && typeof document !== 'undefined') ctx.effect(() => startReminders(t), 'dsh-inbox-planner: reminders')
         ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
           name: 'plugins.row.config',
           key: KEY,

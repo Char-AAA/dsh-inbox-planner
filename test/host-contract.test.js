@@ -14,6 +14,10 @@ import { apply, executeOne } from '../index.js'
 
 import { todoLib } from './helpers.js'
 const TODO = todoLib()
+// Fixture dates sit a month ahead of the real clock: apply() runs on real time.
+const ahead = (d) => { const x = new Date(Date.now() + d * 86400e3); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}` }
+const D1 = ahead(30)
+const D2 = ahead(31)
 const { createStore } = await import(`${TODO}/store.js`)
 const { createApi } = await import(`${TODO}/api.js`)
 const { createTool } = await import(`${TODO}/tool.js`)
@@ -53,9 +57,9 @@ function fakeLlm() {
       const p = opts.messages[0].content[0].text
       assert.equal(typeof opts.system, 'string')
       const reply = p.includes('电信')
-        ? { v: 1, actionable: true, items: [{ key: 'ctg-1114', title: '中国电信：线上笔试', dueDate: '2026-11-14', dueTime: '09:00', priority: 'high', prep: '', quote: '' }] }
+        ? { v: 1, actionable: true, items: [{ key: 'ctg-1114', title: '中国电信：线上笔试', dueDate: D1, dueTime: '09:00', priority: 'high', prep: '', quote: '' }] }
         : p.includes('苏州银行')
-          ? { v: 1, actionable: true, items: [{ key: 'szb-interview', title: '苏州银行：现场面试', dueDate: '2026-11-15', dueTime: '09:15', priority: 'high', prep: '带身份证和学生证', quote: '' }] }
+          ? { v: 1, actionable: true, items: [{ key: 'szb-interview', title: '苏州银行：现场面试', dueDate: D2, dueTime: '09:15', priority: 'high', prep: '带身份证和学生证', quote: '' }] }
           : { v: 1, actionable: false, items: [] }
       yield { type: 'text-delta', text: JSON.stringify(reply) }
       yield { type: 'finish', reason: { kind: 'stop' } }
@@ -114,7 +118,7 @@ test('真实批次约定：/inbox-sync 跑通，待办带时间写进 sidebar-to
   assert.match(r.text, /新增 1/)
   const [t] = await h.todos()
   assert.equal(t.title, '中国电信：线上笔试')
-  assert.equal(t.dueDate, '2026-11-14')
+  assert.equal(t.dueDate, D1)
   assert.equal(t.dueTime, '09:00')
   assert.equal(t.category, '邮件')
   // 再跑一次：没有新邮件，不重复
@@ -168,6 +172,30 @@ test('HTTP 路由：鉴权、只收 POST、sync 跑一轮并回报告、status�
   const st = await hit(route, { path: '/inbox-planner/api/status' })
   assert.equal(st.body.result.account, 'default')
   assert.equal((await hit(route, { path: '/inbox-planner/api/nope' })).status, 404)
+})
+
+test('HTTP 路由（0.4）：处理记录、忽略发件人、强制重看、导出 .ics、提醒设置', async () => {
+  const h = await boot({ mails: [
+    { uid: 9101, subject: '中国电信线上笔试通知', from: 'hr@ct.cn', date: ago(2), body: '11月14日9:00' },
+    { uid: 9102, subject: '岗位推荐：本周精选', from: 'jobs@board.com', date: ago(1), body: '为你推荐' },
+  ] })
+  const [route] = h.routes
+  await hit(route, { path: '/inbox-planner/api/sync' })
+  const log = await hit(route, { path: '/inbox-planner/api/activity', body: { limit: 10 } })
+  assert.equal(log.status, 200)
+  assert.deepEqual(log.body.result.items.map((e) => e.what), ['noise', 'todo'])
+  const ig = await hit(route, { path: '/inbox-planner/api/sender', body: { pattern: 'board.com', ignore: true } })
+  assert.deepEqual(ig.body.result.ignored, ['board.com'])
+  assert.equal((await hit(route, { path: '/inbox-planner/api/rescan', body: {} })).status, 400)
+  const forced = await hit(route, { path: '/inbox-planner/api/rescan', body: { uid: 9102, force: true } })
+  assert.equal(forced.body.result.created, 1)
+  const ex = await hit(route, { path: '/inbox-planner/api/export' })
+  assert.equal(ex.body.result.count, 1)
+  assert.match(ex.body.result.ics, /BEGIN:VEVENT[\s\S]*SUMMARY:中国电信：线上笔试/)
+  const cfg = await hit(route, { path: '/inbox-planner/api/client' })
+  assert.deepEqual(cfg.body.result, { language: 'zh', remindMinutes: 30, briefTime: '08:30', quietHours: '22:00-08:00', remindStyle: 'dot' })
+  const st = await hit(route, { path: '/inbox-planner/api/status' })
+  assert.match(st.body.result.text, /累计/)
 })
 
 test('没装 dsh-sidebar-todo：插件自己提供 personal_todo / personal_note 和 /inbox-planner/todo/api，同步写进自己的存储', async () => {

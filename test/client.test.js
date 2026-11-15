@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import vm from 'node:vm'
 import { JSDOM } from 'jsdom'
-import { FIELDS } from '../lib/config.js'
+import { FIELDS, GROUPS } from '../lib/config.js'
 
 const require = createRequire(import.meta.url)
 const dom = new JSDOM('<!doctype html><div id="root"></div>', { pretendToBeVisual: true, url: 'http://dsh.local/app/' })
@@ -40,7 +40,7 @@ function loadClient() {
   plugin.apply(ctx)
   const config = registered.filter((r) => r.options.name === 'plugins.row.config')
   const menu = registered.find((r) => r.options.name === 'sidebar.panellist.actions')
-  return { registered: config, menu, all: registered, setLang: (l) => { lang = l } }
+  return { registered: config, menu, all: registered, plugin, setLang: (l) => { lang = l } }
 }
 
 function fakeForm(overrides = {}) {
@@ -76,12 +76,12 @@ test('注册 plugins.row.config，键与插件页的 rowConfigKey 一致；summa
   assert.match(registered[0].render({ view: 'summary' }), /待办/)
 })
 
-test('page：四个分组、20 个字段都渲染，值来自宿主；改动后保存发出一次 mutate（带 revision）', async () => {
+test('page：所有分组和字段都渲染，值来自宿主；改动后保存发出一次 mutate（带 revision）', async () => {
   const { registered } = loadClient()
   const form = fakeForm()
   const { host } = await mount(registered[0].render({ view: 'page', form }))
   assert.equal(host.querySelectorAll('[data-field]').length, FIELDS.length)
-  assert.equal(host.querySelectorAll('section').length, 4)
+  assert.equal(host.querySelectorAll('section').length, GROUPS.length)
   assert.match(host.textContent, /检查间隔（秒）/)
   const poll = host.querySelector('[data-field="pollSeconds"] input')
   assert.equal(poll.value, '60')
@@ -166,35 +166,10 @@ test('select 选项文案按字段区分：语言的 auto 是「跟随系统」�
   assert.equal(label('calendar'), '只写需要到场的事')
 })
 
-test('侧栏 More 菜单里的「立即同步」：POST inbox-planner/api/sync，显示结果，然后打开待办并关菜单', async () => {
+test('不再往侧栏 More 菜单里加同步项：刷新只在待办面板标题栏', () => {
   const { menu, all } = loadClient()
-  assert.deepEqual(all.map((r) => `${r.options.name}:${r.options.key ?? r.options.id}`).sort(), ['main:inbox-todo', 'plugins.row.config:dsh-inbox-planner#inbox-planner', 'sidebar.panellist.actions:inbox-planner-sync', 'sidebar.panellist:inbox-todo'])
-  assert.equal(JSON.stringify(menu.options), JSON.stringify({ name: 'sidebar.panellist.actions', id: 'inbox-planner-sync', order: 5 }))
-  const calls = []
-  globalThis.fetch = async (url, init) => { calls.push([url, init.method]); return { status: 200, json: async () => ({ ok: true, result: { ok: true, created: 2, scanned: 3, text: '' } }) } }
-  const opened = []
-  let dismissed = 0
-  const { host } = await mount(menu.render({ entries: [{ id: 'inbox-todo', label: '待办', pinned: true }], onOpen: (id) => opened.push(id), onDismiss: () => { dismissed += 1 } }))
-  const btn = host.querySelector('[data-inbox-planner-sync]')
-  assert.match(btn.textContent, /立即同步邮件/)
-  await act(async () => { btn.click() })
-  assert.deepEqual(calls, [['http://dsh.local/app/inbox-planner/api/sync', 'POST']])
-  assert.match(btn.textContent, /新增 2 条待办/)
-  await act(async () => { await new Promise((r) => setTimeout(r, 1000)) })
-  assert.deepEqual(opened, ['inbox-todo'])
-  assert.equal(dismissed, 1)
-})
-
-test('同步失败时菜单项显示错误、不关菜单；没装待办面板时不去打开它', async () => {
-  const { menu } = loadClient()
-  globalThis.fetch = async () => ({ status: 403, json: async () => ({ ok: false, error: 'forbidden' }) })
-  let dismissed = 0
-  const { host } = await mount(menu.render({ entries: [], onOpen: () => { throw new Error('should not open') }, onDismiss: () => { dismissed += 1 } }))
-  const btn = host.querySelector('[data-inbox-planner-sync]')
-  await act(async () => { btn.click() })
-  assert.match(btn.textContent, /同步失败: forbidden/)
-  await act(async () => { await new Promise((r) => setTimeout(r, 1000)) })
-  assert.equal(dismissed, 0)
+  assert.equal(menu, undefined)
+  assert.equal(all.some((r) => r.options.name === 'sidebar.panellist.actions'), false)
 })
 
 test('自带的待办面板：走 inbox-planner/todo/api，标题栏有刷新图标；点了先同步邮件再重新加载列表', async () => {
@@ -224,6 +199,99 @@ test('自带的待办面板：走 inbox-planner/todo/api，标题栏有刷新图
   assert.ok(calls.filter((c) => c.endsWith('/list')).length > before)
   assert.match(host.querySelector('[data-inbox-planner-refresh-result]').textContent, /新增 1 条待办/)
   await act(async () => { root.unmount() })
+})
+
+test('标题栏：处理记录弹层列出决定，「还是建一条」发 rescan force，「忽略此发件人」发 sender', async () => {
+  const { all } = loadClient()
+  const main = all.find((r) => r.options.name === 'main')
+  const posts = []
+  globalThis.fetch = async (url, init) => {
+    const path = String(url).replace('http://dsh.local/app/', '')
+    posts.push([path, init?.body ? JSON.parse(init.body) : null])
+    const result = path.endsWith('/activity') ? { items: [
+      { at: '2026-11-12T13:00:00Z', account: 'qq', uid: 41, subject: '问卷：入职信息', from: 'HR', fromAddr: 'hr@corp.com', what: 'noise' },
+      { at: '2026-11-12T12:00:00Z', account: 'qq', uid: 40, subject: '面试邀请', from: 'HR', fromAddr: 'hr@corp.com', what: 'todo', items: [{ what: 'todo', title: '公司：面试' }] },
+    ], ignored: ['shop.com'], stats: { mails: 2, created: 1, moved: 0, cancelled: 0, llmCalls: 1, llmMs: 1500, cacheHits: 0, invites: 0 } }
+      : path.endsWith('/list') ? { items: [], summary: { today: 0, overdue: 0, stale: 0, unplanned: 0 }, notices: [], staleDays: 7 }
+        : path.endsWith('/notesList') ? { notes: [] } : path.endsWith('/categories') ? { categories: [] } : path.endsWith('/occurrences') ? { items: [] } : { ok: true, created: 1 }
+    return { ok: true, status: 200, json: async () => ({ ok: true, result }) }
+  }
+  const { host, root } = await mount(React.createElement(main.render, { t: (k) => k }))
+  await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
+  assert.ok(host.querySelector('[data-inbox-planner-export]'), 'export button')
+  await act(async () => { host.querySelector('[data-inbox-planner-log]').click() })
+  await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
+  const panel = host.querySelector('[data-inbox-planner-activity]')
+  assert.ok(panel)
+  assert.equal(panel.querySelectorAll('[data-activity-row]').length, 2)
+  assert.match(panel.textContent, /公司：面试/)
+  assert.match(panel.textContent, /shop\.com/)
+  // Only the skipped mail offers "make a to-do anyway".
+  const force = panel.querySelectorAll('[data-force]')
+  assert.equal(force.length, 1)
+  await act(async () => { force[0].click() })
+  await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
+  const rescan = posts.find(([p]) => p === 'inbox-planner/api/rescan')
+  assert.deepEqual(rescan[1], { uid: 41, account: 'qq', force: true })
+  await act(async () => { host.querySelector('[data-inbox-planner-activity] [data-ignore]').click() })
+  await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
+  assert.deepEqual(posts.find(([p]) => p === 'inbox-planner/api/sender')[1], { pattern: 'hr@corp.com', ignore: true })
+  await act(async () => { root.unmount() })
+})
+
+test('提醒：提前 N 分钟、免打扰时段压住、跨午夜的免打扰、每日简报只发一次', () => {
+  const { plugin } = loadClient()
+  const { dueReminders, inQuiet } = plugin._test
+  const cfg = { remindMinutes: 30, briefTime: '08:30', quietHours: '22:00-08:00' }
+  const at = (h, m) => new Date(2026, 10, 14, h, m)
+  const todos = [
+    { id: 'a', title: '中国电信：笔试', dueDate: '2026-11-14', dueTime: '09:00' },
+    { id: 'b', title: '交材料', dueDate: '2026-11-13' },
+    { id: 'c', title: '下周的事', dueDate: '2026-11-20', dueTime: '09:00' },
+    { id: 'd', title: '已完成', dueDate: '2026-11-14', dueTime: '09:00', done: true },
+  ]
+  assert.equal(inQuiet(at(23, 0), cfg.quietHours), true)
+  assert.equal(inQuiet(at(7, 59), cfg.quietHours), true)
+  assert.equal(inQuiet(at(8, 0), cfg.quietHours), false)
+  assert.equal(inQuiet(at(13, 0), '12:00-14:00'), true)
+  assert.equal(dueReminders(todos, cfg, at(7, 50), {}).length, 0, 'quiet hours hold everything')
+  const r = dueReminders(todos, cfg, at(8, 35), {})
+  assert.equal(JSON.stringify(r.map((x) => x.kind)), '["remind","brief"]')
+  assert.equal(r[0].minutes, 25)
+  assert.equal(r[1].today, 1)
+  assert.equal(r[1].overdue, 1)
+  const fired = Object.fromEntries(r.map((x) => [x.key, 1]))
+  assert.equal(dueReminders(todos, cfg, at(8, 40), fired).length, 0)
+  // Rescheduling re-arms the reminder: the key includes the date and time.
+  const moved = [{ ...todos[0], dueTime: '10:00' }]
+  assert.equal(dueReminders(moved, cfg, at(9, 45), fired).filter((x) => x.kind === 'remind').length, 1)
+  assert.equal(dueReminders(todos, { remindMinutes: 0, briefTime: '', quietHours: '' }, at(8, 50), {}).length, 0)
+})
+
+test('红点：提醒到了只在侧栏待办图标右上角亮红点；打开待办页就清掉，开着时不再亮', async () => {
+  const { all, plugin } = loadClient()
+  const { badge } = plugin._test
+  const nav = all.find((r) => r.options.name === 'sidebar.panellist')
+  const main = all.find((r) => r.options.name === 'main')
+  const icon = await mount(React.createElement(nav.render, { size: 16 }))
+  assert.equal(icon.host.querySelector('[data-inbox-planner-badge]').getAttribute('data-inbox-planner-badge'), 'off')
+  await act(async () => { badge.set(true) })
+  assert.equal(icon.host.querySelector('[data-inbox-planner-badge]').getAttribute('data-inbox-planner-badge'), 'on')
+  globalThis.fetch = async (url) => {
+    const path = String(url)
+    const result = path.endsWith('/list') ? { items: [], summary: { today: 0, overdue: 0, stale: 0, unplanned: 0 }, notices: [], staleDays: 7 }
+      : path.endsWith('/notesList') ? { notes: [] } : path.endsWith('/categories') ? { categories: [] } : path.endsWith('/occurrences') ? { items: [] } : {}
+    return { ok: true, status: 200, json: async () => ({ ok: true, result }) }
+  }
+  const page = await mount(React.createElement(main.render, { t: (k) => k }))
+  await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+  assert.equal(icon.host.querySelector('[data-inbox-planner-badge]').getAttribute('data-inbox-planner-badge'), 'off')
+  await act(async () => { badge.set(true) })
+  assert.equal(icon.host.querySelector('[data-inbox-planner-badge]').getAttribute('data-inbox-planner-badge'), 'off', 'page open: stays off')
+  await act(async () => { page.root.unmount() })
+  await act(async () => { badge.set(true) })
+  assert.equal(icon.host.querySelector('[data-inbox-planner-badge]').getAttribute('data-inbox-planner-badge'), 'on')
+  await act(async () => { icon.root.unmount() })
 })
 
 test.after(() => { setTimeout(() => process.exit(process.exitCode ?? 0), 50).unref?.() })

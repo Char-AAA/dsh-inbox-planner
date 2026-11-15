@@ -1,7 +1,7 @@
 {
   "name": "dsh-inbox-planner",
-  "version": "0.3.1",
-  "description": "邮件 → 待办 → 日历 三合一：自带待办和月历面板（标题栏有刷新图标），自动读取 dsh-email 的新邮件，判断是否需要你处理，把事项连同日期时间写进待办；判重、冲突提示、语言跟随系统。All-in-one mail → to-do → calendar: built-in to-do and month-calendar panel with a refresh icon; new mail that needs your action becomes dated to-dos, with dedupe and clash warnings.",
+  "version": "0.4.0",
+  "description": "邮件 → 待办 → 日历 三合一：自动读取 dsh-email 的新邮件，判断是否需要你处理，把事项连同日期时间写进自带的待办和月历；会议邀请直读、改期和取消自动跟进、到点提醒和每日简报、多邮箱判重与冲突提示。All-in-one mail → to-do → calendar for DSH: dated to-dos from new mail, .ics invitations read directly, reschedules and cancellations followed, reminders and a daily brief, multi-mailbox dedupe and clash warnings.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -12,15 +12,15 @@
     "./client": "./client.js"
   },
   "files": [
-    "index.js",
-    "client.js",
-    "lib/**/*.js",
-    "cordis.patch.yml",
-    "icon.svg",
-    "README.md",
-    "README.zh.md",
     "CHANGELOG.md",
     "LICENSE",
+    "README.md",
+    "README.zh.md",
+    "client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "index.js",
+    "lib/**/*.js",
     "vendor/LICENSE.dsh-sidebar-todo"
   ],
   "keywords": [
@@ -32,7 +32,9 @@
     "todo",
     "calendar",
     "productivity",
-    "imap"
+    "imap",
+    "ics",
+    "reminder"
   ],
   "author": "Charles <hanzeyu0123@gmail.com> (https://github.com/Char-AAA)",
   "license": "MIT",
